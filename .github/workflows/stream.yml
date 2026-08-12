@@ -12,20 +12,23 @@ on:
         description: 'نووسینی شریتی هەواڵەکان'
         required: true
         type: string
-        default: 'بخێرهاتن بوو ناڤ که نالێ میدیا باگێرا که نالی ناوخوی هه مه جوور '
+        default: 'بەخێربێن بۆ کەناڵی ناوخۆیی میدیا باگێرا'
 
 jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی پرۆگرامی پەخش (FFmpeg)
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto
+      - name: ئامادەکردنی سێرڤەر و فۆنت
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          wget -qO myfont.ttf "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoKufiArabic/NotoKufiArabic-Regular.ttf"
 
-      - name: دەستپێکردنی پەخش بۆ ok.ru
+      - name: دەستپێکردنی پەخش بۆ ok.ru بە دیزاینی نوێوە
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" \
-          -vf "drawtext=text='${{ github.event.inputs.ticker_text }}':fontcolor=white:fontsize=36:box=1:boxcolor=black@0.6:boxborderw=10:x=w-mod(t*120\,w+tw):y=h-60" \
+          -vf "drawbox=y=ih-70:color=black@0.75:width=iw:height=70:t=fill,drawtext=fontfile=myfont.ttf:text='${{ github.event.inputs.ticker_text }}':fontcolor=white:fontsize=36:x=w-mod(t*130\,w+tw):y=h-55" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
