@@ -60,6 +60,6 @@ jobs:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" -i "${{ github.event.inputs.logo_url }}" \
-          -filter_complex "[1:v]scale=120:-1[logo];[0:v][logo]overlay=W-w-25:25,drawtext=text='Media bagera tv':fontcolor=white:fontsize=22:x=W-tw-25:y=155:shadowcolor=black:shadowx=2:shadowy=2,drawbox=y=ih-80:color=#C0392B@1.0:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=0:y=ih-80:color=black@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=40:x=45:y=h-62" \
+          -filter_complex "[1:v]scale=180:-1[logo];[0:v][logo]overlay=35:35,drawtext=text='Media bagera tv':fontcolor=white:fontsize=24:x=35:y=220:shadowcolor=black:shadowx=2:shadowy=2,drawbox=y=ih-80:color=#C0392B@1.0:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=0:y=ih-80:color=black@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=40:x=45:y=h-62" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
