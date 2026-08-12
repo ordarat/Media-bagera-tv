@@ -3,49 +3,56 @@ name: LiveZon Cloud Playout
 on:
   workflow_dispatch:
     inputs:
-      stream_url:
-        description: 'لینکی ڤیدیۆ یان m3u8 لێرە دابنێ'
-        required: false
-        type: string
-        default: 'http://185.191.126.127:8080/live///b0:99:d7:15:88:50/3090914536649669/358220.ts'
+      mode:
+        description: 'دۆخی پەخش (play یان stop)'
+        required: true
+        default: 'play'
       logo_url:
-        description: 'لینکی وێنەی لۆگۆکە'
+        description: 'لینکی لۆگۆ'
         required: false
-        type: string
         default: 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
       ticker_text:
-        description: 'نووسینی شریتی هەواڵەکان'
+        description: 'شریتی هەواڵ'
         required: false
-        type: string
         default: 'بەخێربێن بۆ کەناڵی ناوخۆیی میدیا باگێرا و سیستەمی لایڤزۆن'
       playlist_data:
-        description: 'زانیارییەکانی خشتەی ڕیزبەندی (JSON)'
+        description: 'خشتەی پەخش (JSON)'
         required: false
-        type: string
         default: '[]'
+      ad_data:
+        description: 'ڕێکلام (JSON)'
+        required: false
+        default: '{}'
+      offline_image:
+        description: 'وێنەی کوژانەوە'
+        required: false
+        default: ''
+
+# ئەمە ئەو بەشە جادوییەیە کە فەرمانە کۆنەکان دەوەستێنێت ئەگەر فەرمانی نوێ هات
+concurrency:
+  group: "livezon-playout"
+  cancel-in-progress: true
 
 jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی بەرنامەکان و فۆنتی دروست
+      - name: دابەزاندنی بەرنامەکان
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
           pip3 install Pillow arabic-reshaper python-bidi --break-system-packages
           wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
-      - name: دروستکردنی وێنەی شەفاف بۆ نووسینەکان
+      - name: ئامادەکردنی نووسینەکان
         env:
           TICKER_TEXT: ${{ github.event.inputs.ticker_text }}
         run: |
           cat << 'EOF' > format_text.py
           import os
           from PIL import Image, ImageDraw, ImageFont
-          
           ticker = os.environ.get('TICKER_TEXT', 'بەخێربێن')
           static = "دەنگ و باس"
-          
           def create_img(text, filename, font_size):
               font = ImageFont.truetype("myfont.ttf", font_size)
               try:
@@ -66,74 +73,76 @@ jobs:
                   draw = ImageDraw.Draw(img)
                   draw.text((27, 12), bidi_text, font=font, fill=(0,0,0,255))
                   draw.text((25, 10), bidi_text, font=font, fill=(255,255,255,255))
-                  
               img.save(filename)
-
           create_img(ticker, "ticker.png", 42)
           create_img(static, "static.png", 40)
           EOF
           python3 format_text.py
 
-      - name: سیستەمی زیرەکی خشتەی ڕیزبەندی (Playout Engine)
+      - name: مەکینەی پەخش (Playout Engine)
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
           TZ: Asia/Baghdad
+          MODE: ${{ github.event.inputs.mode }}
           PLAYLIST_DATA: ${{ github.event.inputs.playlist_data }}
-          STREAM_URL: ${{ github.event.inputs.stream_url }}
+          AD_DATA: ${{ github.event.inputs.ad_data }}
           LOGO_URL: ${{ github.event.inputs.logo_url }}
+          OFFLINE_IMAGE: ${{ github.event.inputs.offline_image }}
         run: |
           cat << 'EOF' > stream_manager.py
           import os, json, subprocess, time
 
-          playlist_json = os.environ.get('PLAYLIST_DATA', '[]')
-          fallback_url = os.environ.get('STREAM_URL', '')
+          mode = os.environ.get('MODE', 'play')
           rtmp_url = os.environ.get('RTMP_URL', '')
           logo_url = os.environ.get('LOGO_URL', '')
-
-          try:
-              playlist = json.loads(playlist_json)
-          except:
-              playlist = []
-
-          # ئەگەر داشبۆردەکە خشتەی نەناردبوو، لینکی یەدەگ بەکاردێنێت
-          if not playlist or len(playlist) == 0:
-              playlist = [{'type': 'video', 'duration': 60, 'url': fallback_url}]
-
-          # دیزاینە جێگیرەکەی کەناڵەکە (لۆگۆ، کاتژمێر، شریتی هەواڵ)
-          filter_complex = "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2"
+          offline_img = os.environ.get('OFFLINE_IMAGE', '')
           
-          # سوڕانەوەی بەردەوام بەناو خشتەکەدا
-          while True:
-              for index, item in enumerate(playlist):
-                  url = item.get('url')
-                  itype = item.get('type', 'video')
-                  dur_minutes = float(item.get('duration', 60))
-                  dur_seconds = int(dur_minutes * 60)
+          try: playlist = json.loads(os.environ.get('PLAYLIST_DATA', '[]'))
+          except: playlist = []
+          
+          try: ad = json.loads(os.environ.get('AD_DATA', '{}'))
+          except: ad = {}
 
-                  print(f"\n---> دەستپێکردنی بڕگەی ژمارە {index + 1}: {itype} بۆ ماوەی {dur_minutes} خولەک <---")
-                  
-                  cmd = ['ffmpeg']
-                  
-                  if itype == 'image':
-                      # ڕێکخستنی تایبەت بۆ وێنە (دروستکردنی ڤیدیۆ لە وێنەکە لەگەڵ دەنگی بێدەنگ)
-                      cmd.extend(['-loop', '1', '-t', str(dur_seconds), '-i', url])
-                      cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
-                      cmd.extend(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']) # دەنگی بێدەنگ
-                      cmd.extend(['-filter_complex', filter_complex])
-                      cmd.extend(['-map', '[v7]', '-map', '4:a'])
-                      cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p'])
-                      cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-shortest', '-f', 'flv', rtmp_url])
-                  else:
-                      # ڕێکخستن بۆ ڤیدیۆ و ستریم
-                      cmd.extend(['-re', '-t', str(dur_seconds), '-i', url])
-                      cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
-                      cmd.extend(['-filter_complex', filter_complex])
-                      cmd.extend(['-map', '[v7]', '-map', '0:a?'])
-                      cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k'])
-                      cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-f', 'flv', rtmp_url])
+          filter_complex = "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2"
 
-                  # جێبەجێکردنی فەرمانەکە
-                  subprocess.run(cmd)
-                  time.sleep(2) # پشوویەکی کورت پێش بڕگەی دواتر
+          def play_media(url, itype, duration_sec):
+              cmd = ['ffmpeg']
+              if itype == 'image':
+                  cmd.extend(['-loop', '1', '-t', str(duration_sec), '-i', url])
+                  cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
+                  cmd.extend(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo'])
+                  cmd.extend(['-filter_complex', filter_complex, '-map', '[v7]', '-map', '4:a'])
+              else:
+                  cmd.extend(['-re', '-t', str(duration_sec), '-i', url])
+                  cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
+                  cmd.extend(['-filter_complex', filter_complex, '-map', '[v7]', '-map', '0:a?'])
+              
+              cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p'])
+              cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-f', 'flv', rtmp_url])
+              subprocess.run(cmd)
+
+          if mode == 'stop':
+              print("--- پەخش وەستێنرا، وێنەی وەستان پەخش دەکرێت ---")
+              while True:
+                  # پەخشکردنی وێنەی وەستان بۆ ماوەی ٢٤ کاتژمێر لە هەر سووڕێکدا
+                  play_media(offline_img, 'image', 86400) 
+          else:
+              items_played = 0
+              ad_interval = int(ad.get('interval', 0))
+              ad_url = ad.get('url', '')
+              
+              while True:
+                  for item in playlist:
+                      if not item.get('url'): continue
+                      dur_sec = int(float(item.get('duration', 60)) * 60)
+                      play_media(item['url'], item['type'], dur_sec)
+                      items_played += 1
+                      
+                      # پشکنین بۆ کاتی ڕێکلام
+                      if ad_interval > 0 and items_played % ad_interval == 0 and ad_url != '':
+                          print("--- کاتی ڕێکلامە ---")
+                          play_media(ad_url, ad['type'], int(ad.get('duration', 30)))
+                          
+                  time.sleep(1)
           EOF
           python3 stream_manager.py
