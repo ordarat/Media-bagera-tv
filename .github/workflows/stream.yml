@@ -30,7 +30,7 @@ jobs:
           pip3 install Pillow arabic-reshaper python-bidi --break-system-packages
           wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
-      - name: دروستکردنی وێنەی شەفاف بۆ نووسینەکان (چارەسەری یەکجاری بۆ نەپچڕانی پیتەکان)
+      - name: دروستکردنی وێنەی شەفاف بۆ نووسینەکان
         env:
           TICKER_TEXT: ${{ github.event.inputs.ticker_text }}
         run: |
@@ -44,7 +44,6 @@ jobs:
           def create_img(text, filename, font_size):
               font = ImageFont.truetype("myfont.ttf", font_size)
               try:
-                  # شێوازی نوێ کە ١٠٠٪ پیتەکان دەناسێتەوە بەبێ تێکچوون
                   bbox = font.getbbox(text, direction="rtl", language="ckb")
                   width = bbox[2] - bbox[0]
                   img = Image.new("RGBA", (max(10, width + 50), 80), (0,0,0,0))
@@ -52,7 +51,6 @@ jobs:
                   draw.text((27, 12), text, font=font, fill=(0,0,0,255), direction="rtl", language="ckb")
                   draw.text((25, 10), text, font=font, fill=(255,255,255,255), direction="rtl", language="ckb")
               except Exception:
-                  # ئەگەر شێوازە نوێیەکە کاری نەکرد، ئەمە وەک یەدەگ بەکاردێت
                   import arabic_reshaper
                   from bidi.algorithm import get_display
                   reshaper = arabic_reshaper.ArabicReshaper(configuration={'language': 'Kurdish', 'delete_harakat': True})
@@ -71,11 +69,12 @@ jobs:
           EOF
           python3 format_text.py
 
-      - name: دەستپێکردنی پەخش بە سیستەمی وێنە جووڵاوەکانەوە
+      - name: دەستپێکردنی پەخش بە سیستەمی کاتژمێرەوە
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
+          TZ: Asia/Baghdad
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" -i "${{ github.event.inputs.logo_url }}" -i ticker.png -i static.png \
-          -filter_complex "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=(280-w)/2:y=H-80" \
+          -filter_complex "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=W-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=h-62:shadowcolor=black:shadowx=2:shadowy=2" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
