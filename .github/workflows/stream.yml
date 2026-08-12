@@ -18,17 +18,35 @@ jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: ئامادەکردنی سێرڤەر و فۆنت
+      - name: دابەزاندنی بەرنامەکان و فۆنت
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          wget -qO myfont.ttf "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoKufiArabic/NotoKufiArabic-Regular.ttf"
+          sudo apt-get install -y ffmpeg fonts-noto-arabic python3-pip
+          pip3 install arabic-reshaper python-bidi
 
-      - name: دەستپێکردنی پەخش بۆ ok.ru بە دیزاینی نوێوە
+      - name: ڕێکخستنی پیتە کوردییەکان
+        run: |
+          cat << 'EOF' > format_text.py
+          import sys
+          import arabic_reshaper
+          from bidi.algorithm import get_display
+          
+          # وەرگرتنی نووسینەکە و ڕێکخستنی پیتەکان
+          text = sys.argv[1]
+          reshaped_text = arabic_reshaper.reshape(text)
+          bidi_text = get_display(reshaped_text)
+          
+          # سەیڤکردنی لەناو فایلێک بۆ FFmpeg
+          with open("ticker.txt", "w", encoding="utf-8") as f:
+              f.write(bidi_text)
+          EOF
+          python3 format_text.py "${{ github.event.inputs.ticker_text }}"
+
+      - name: دەستپێکردنی پەخش بە دیزاینی نوێوە
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" \
-          -vf "drawbox=y=ih-70:color=black@0.75:width=iw:height=70:t=fill,drawtext=fontfile=myfont.ttf:text='${{ github.event.inputs.ticker_text }}':fontcolor=white:fontsize=36:x=w-mod(t*130\,w+tw):y=h-55" \
+          -vf "drawbox=y=ih-70:color=black@0.75:width=iw:height=70:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf:textfile=ticker.txt:fontcolor=white:fontsize=36:x=w-mod(t*130\,w+tw):y=h-55" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
