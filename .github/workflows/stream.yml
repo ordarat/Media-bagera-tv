@@ -28,7 +28,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
           pip3 install arabic-reshaper python-bidi --break-system-packages
-          wget -qO myfont.ttf "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Bold.ttf"
+          wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
       - name: ڕێکخستن و لێکدانی پیتە کوردییەکان بەتەواوی
         env:
@@ -39,16 +39,24 @@ jobs:
           import arabic_reshaper
           from bidi.algorithm import get_display
           
+          # ڕێکخستنی فەرمی و زۆر ورد بۆ لێکدانی پیتەکانی کوردی
+          config = {
+              'language': 'Kurdish',
+              'delete_harakat': True,
+              'support_ligatures': True
+          }
+          reshaper = arabic_reshaper.ArabicReshaper(configuration=config)
+          
           # چارەسەری شریتی هەواڵ
           ticker = os.environ.get('TICKER_TEXT', 'بەخێربێن')
-          reshaped_ticker = arabic_reshaper.reshape(ticker)
+          reshaped_ticker = reshaper.reshape(ticker)
           bidi_ticker = get_display(reshaped_ticker)
           with open("ticker.txt", "w", encoding="utf-8") as f:
               f.write(bidi_ticker)
               
           # چارەسەری بۆکسە ڕەشەکە
           static = "دەنگ و باس"
-          reshaped_static = arabic_reshaper.reshape(static)
+          reshaped_static = reshaper.reshape(static)
           bidi_static = get_display(reshaped_static)
           with open("static.txt", "w", encoding="utf-8") as f:
               f.write(bidi_static)
@@ -60,6 +68,6 @@ jobs:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" -i "${{ github.event.inputs.logo_url }}" \
-          -filter_complex "[1:v]scale=180:-1[logo];[0:v][logo]overlay=35:35,drawtext=text='Media bagera tv':fontcolor=white:fontsize=24:x=35:y=220:shadowcolor=black:shadowx=2:shadowy=2,drawbox=y=ih-80:color=#C0392B@1.0:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=0:y=ih-80:color=black@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=40:x=45:y=h-62" \
+          -filter_complex "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35,drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=180:borderw=2:bordercolor=black,drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=0:y=ih-80:color=#D35400@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=white:fontsize=40:x=45:y=h-62:shadowcolor=black:shadowx=2:shadowy=2" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
