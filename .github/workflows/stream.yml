@@ -7,7 +7,7 @@ on:
         description: 'لینکی ڤیدیۆ یان m3u8 لێرە دابنێ'
         required: true
         type: string
-        default: 'https://live.rudaw.net/hls/rudaw-tv/master.m3u8'
+        default: 'http://185.191.126.127:8080/live///b0:99:d7:15:88:50/3090914536649669/358220.ts'
       ticker_text:
         description: 'نووسینی شریتی هەواڵەکان'
         required: true
@@ -18,45 +18,43 @@ jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی بەرنامەکان و فۆنتی دروست بۆ زمانی کوردی
+      - name: دابەزاندنی بەرنامەکان و فۆنتی دروست
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
           pip3 install arabic-reshaper python-bidi --break-system-packages
           wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
-      - name: ڕێکخستنی پیتە کوردییەکان و ئامادەکردنی تێکستەکان
+      - name: ڕێکخستنی پیتە کوردییەکان بێ تێکچوون
+        env:
+          TICKER_TEXT: ${{ github.event.inputs.ticker_text }}
         run: |
           cat << 'EOF' > format_text.py
-          import sys
+          import os
           import arabic_reshaper
           from bidi.algorithm import get_display
           
-          # ڕێکخستنی تایبەت بۆ زمانی کوردی
-          config = {'language': 'Kurdish', 'delete_harakat': True}
-          reshaper = arabic_reshaper.ArabicReshaper(configuration=config)
-          
-          # نوسینی جووڵاو
-          text = sys.argv[1]
-          reshaped_text = reshaper.reshape(text)
-          bidi_text = get_display(reshaped_text)
+          # وەرگرتنی نووسینەکە بە پارێزراوی
+          ticker = os.environ.get('TICKER_TEXT', 'بەخێربێن')
+          reshaped_ticker = arabic_reshaper.reshape(ticker)
+          bidi_ticker = get_display(reshaped_ticker)
           with open("ticker.txt", "w", encoding="utf-8") as f:
-              f.write(bidi_text)
+              f.write(bidi_ticker)
               
-          # نوسینی جێگیر (دەنگ و باس)
-          static_text = "دەنگ و باس"
-          reshaped_static = reshaper.reshape(static_text)
+          # نووسینی ناو بۆکسە ڕەشەکە (دەنگ و باس)
+          static = "دەنگ و باس"
+          reshaped_static = arabic_reshaper.reshape(static)
           bidi_static = get_display(reshaped_static)
           with open("static.txt", "w", encoding="utf-8") as f:
               f.write(bidi_static)
           EOF
-          python3 format_text.py "${{ github.event.inputs.ticker_text }}"
+          python3 format_text.py
 
-      - name: دەستپێکردنی پەخش بە دیزاینە چارەسەرکراوەکە
+      - name: دەستپێکردنی پەخش بە دیزاینی پێشکەوتووەوە
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" \
-          -vf "drawbox=y=ih-80:color=#B20000@1.0:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=w-280:y=ih-80:color=black@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=40:x=w-235:y=h-62" \
+          -vf "drawbox=y=ih-80:color=#B20000@1.0:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=0:y=ih-80:color=black@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=40:x=45:y=h-62" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
