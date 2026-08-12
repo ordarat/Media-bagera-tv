@@ -34,16 +34,20 @@ jobs:
           import arabic_reshaper
           from bidi.algorithm import get_display
           
-          # وەرگرتنی نووسینەکە بە پارێزراوی
+          # ڕێکخستنی فەرمی بۆ زمانی کوردی بۆ ئەوەی پیتەکان نەپچڕێن
+          config = {'language': 'Kurdish'}
+          reshaper = arabic_reshaper.ArabicReshaper(configuration=config)
+          
+          # چارەسەری شریتی هەواڵ
           ticker = os.environ.get('TICKER_TEXT', 'بەخێربێن')
-          reshaped_ticker = arabic_reshaper.reshape(ticker)
+          reshaped_ticker = reshaper.reshape(ticker)
           bidi_ticker = get_display(reshaped_ticker)
           with open("ticker.txt", "w", encoding="utf-8") as f:
               f.write(bidi_ticker)
               
-          # نووسینی ناو بۆکسە ڕەشەکە (دەنگ و باس)
+          # چارەسەری بۆکسە ڕەشەکە
           static = "دەنگ و باس"
-          reshaped_static = arabic_reshaper.reshape(static)
+          reshaped_static = reshaper.reshape(static)
           bidi_static = get_display(reshaped_static)
           with open("static.txt", "w", encoding="utf-8") as f:
               f.write(bidi_static)
