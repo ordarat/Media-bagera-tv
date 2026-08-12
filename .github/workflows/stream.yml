@@ -4,9 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       stream_url:
-        description: 'https://live.rudaw.net/hls/rudaw-tv/master.m3u8'
+        description: 'لینکی ڤیدیۆ یان m3u8 لێرە دابنێ'
         required: true
         type: string
+        default: 'https://live.rudaw.net/hls/rudaw-tv/master.m3u8'
       ticker_text:
         description: 'نووسینی شریتی هەواڵەکان'
         required: true
@@ -18,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: دابەزاندنی پرۆگرامی پەخش (FFmpeg)
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-ui-arabic
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-arabic
 
       - name: دەستپێکردنی پەخش بۆ ok.ru
         env:
