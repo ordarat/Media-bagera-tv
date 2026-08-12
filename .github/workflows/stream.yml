@@ -12,38 +12,38 @@ on:
         description: 'نووسینی شریتی هەواڵەکان'
         required: true
         type: string
-        default: 'بەخێربێن بۆ کەناڵی ناوخۆیی میدیا باگێرا'
+        default: 'بەخێربێن بۆ کەناڵی ناوخۆیی میدیا باگێرا و سیستەمی لایڤزۆن'
 
 jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی بەرنامەکان و فۆنتی کوردی
+      - name: دابەزاندنی بەرنامەکان و فۆنتی دروست بۆ زمانی کوردی
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
           pip3 install arabic-reshaper python-bidi --break-system-packages
-          wget -qO myfont.ttf "https://github.com/googlefonts/noto-fonts/raw/main/unhinted/ttf/NotoSansArabic/NotoSansArabic-Bold.ttf"
+          wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
-      - name: ڕێکخستنی پیتە کوردییەکان و دیزاین
+      - name: ڕێکخستنی پیتە کوردییەکان و ئامادەکردنی تێکستەکان
         run: |
           cat << 'EOF' > format_text.py
           import sys
           import arabic_reshaper
           from bidi.algorithm import get_display
           
-          # ڕێکخستنی پایتۆن بۆ زمان و پیتە کوردییەکان
+          # ڕێکخستنی تایبەت بۆ زمانی کوردی
           config = {'language': 'Kurdish', 'delete_harakat': True}
           reshaper = arabic_reshaper.ArabicReshaper(configuration=config)
           
-          # ئامادەکردنی نوسینی شریتی هەواڵ
+          # نوسینی جووڵاو
           text = sys.argv[1]
           reshaped_text = reshaper.reshape(text)
           bidi_text = get_display(reshaped_text)
           with open("ticker.txt", "w", encoding="utf-8") as f:
               f.write(bidi_text)
               
-          # ئامادەکردنی نوسینی ناو بۆکسە ڕەشەکە (دەنگ و باس)
+          # نوسینی جێگیر (دەنگ و باس)
           static_text = "دەنگ و باس"
           reshaped_static = reshaper.reshape(static_text)
           bidi_static = get_display(reshaped_static)
@@ -52,11 +52,11 @@ jobs:
           EOF
           python3 format_text.py "${{ github.event.inputs.ticker_text }}"
 
-      - name: دەستپێکردنی پەخش بە دیزاینە پرۆفیشناڵەکەوە
+      - name: دەستپێکردنی پەخش بە دیزاینە چارەسەرکراوەکە
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" \
-          -vf "drawbox=y=ih-80:color=#aa0000@0.9:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-60:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=w-250:y=ih-80:color=black@1.0:width=250:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=42:x=w-210:y=h-60" \
+          -vf "drawbox=y=ih-80:color=#B20000@1.0:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=w-280:y=ih-80:color=black@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=40:x=w-235:y=h-62" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
