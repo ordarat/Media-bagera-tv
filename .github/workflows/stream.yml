@@ -1,0 +1,30 @@
+name: LiveZon Cloud Playout
+
+on:
+  workflow_dispatch:
+    inputs:
+      stream_url:
+        description: 'https://live.rudaw.net/hls/rudaw-tv/master.m3u8'
+        required: true
+        type: string
+      ticker_text:
+        description: 'نووسینی شریتی هەواڵەکان'
+        required: true
+        type: string
+        default: 'بخێرهاتن بوو ناڤ که نالێ میدیا باگێرا که نالی ناوخوی هه مه جوور '
+
+jobs:
+  start_stream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: دابەزاندنی پرۆگرامی پەخش (FFmpeg)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-ui-arabic
+
+      - name: دەستپێکردنی پەخش بۆ ok.ru
+        env:
+          RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
+        run: |
+          ffmpeg -re -i "${{ github.event.inputs.stream_url }}" \
+          -vf "drawtext=text='${{ github.event.inputs.ticker_text }}':fontcolor=white:fontsize=36:box=1:boxcolor=black@0.6:boxborderw=10:x=w-mod(t*120\,w+tw):y=h-60" \
+          -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
+          -c:a aac -b:a 128k -f flv "$RTMP_URL"
