@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: دابەزاندنی پرۆگرامی پەخش (FFmpeg)
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-arabic
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto
 
       - name: دەستپێکردنی پەخش بۆ ok.ru
         env:
