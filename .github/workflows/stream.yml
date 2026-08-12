@@ -23,51 +23,59 @@ jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی بەرنامەکان و فۆنتی دروست بۆ زمانی کوردی
+      - name: دابەزاندنی بەرنامەکان و فۆنتی دروست
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
-          pip3 install arabic-reshaper python-bidi --break-system-packages
+          pip3 install Pillow arabic-reshaper python-bidi --break-system-packages
           wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
-      - name: ڕێکخستن و لێکدانی پیتە کوردییەکان بەتەواوی
+      - name: دروستکردنی وێنەی شەفاف بۆ نووسینەکان (چارەسەری یەکجاری بۆ نەپچڕانی پیتەکان)
         env:
           TICKER_TEXT: ${{ github.event.inputs.ticker_text }}
         run: |
           cat << 'EOF' > format_text.py
           import os
-          import arabic_reshaper
-          from bidi.algorithm import get_display
+          from PIL import Image, ImageDraw, ImageFont
           
-          # ڕێکخستنی فەرمی و زۆر ورد بۆ لێکدانی پیتەکانی کوردی
-          config = {
-              'language': 'Kurdish',
-              'delete_harakat': True,
-              'support_ligatures': True
-          }
-          reshaper = arabic_reshaper.ArabicReshaper(configuration=config)
-          
-          # چارەسەری شریتی هەواڵ
           ticker = os.environ.get('TICKER_TEXT', 'بەخێربێن')
-          reshaped_ticker = reshaper.reshape(ticker)
-          bidi_ticker = get_display(reshaped_ticker)
-          with open("ticker.txt", "w", encoding="utf-8") as f:
-              f.write(bidi_ticker)
-              
-          # چارەسەری بۆکسە ڕەشەکە
           static = "دەنگ و باس"
-          reshaped_static = reshaper.reshape(static)
-          bidi_static = get_display(reshaped_static)
-          with open("static.txt", "w", encoding="utf-8") as f:
-              f.write(bidi_static)
+          
+          def create_img(text, filename, font_size):
+              font = ImageFont.truetype("myfont.ttf", font_size)
+              try:
+                  # شێوازی نوێ کە ١٠٠٪ پیتەکان دەناسێتەوە بەبێ تێکچوون
+                  bbox = font.getbbox(text, direction="rtl", language="ckb")
+                  width = bbox[2] - bbox[0]
+                  img = Image.new("RGBA", (max(10, width + 50), 80), (0,0,0,0))
+                  draw = ImageDraw.Draw(img)
+                  draw.text((27, 12), text, font=font, fill=(0,0,0,255), direction="rtl", language="ckb")
+                  draw.text((25, 10), text, font=font, fill=(255,255,255,255), direction="rtl", language="ckb")
+              except Exception:
+                  # ئەگەر شێوازە نوێیەکە کاری نەکرد، ئەمە وەک یەدەگ بەکاردێت
+                  import arabic_reshaper
+                  from bidi.algorithm import get_display
+                  reshaper = arabic_reshaper.ArabicReshaper(configuration={'language': 'Kurdish', 'delete_harakat': True})
+                  bidi_text = get_display(reshaper.reshape(text))
+                  bbox = font.getbbox(bidi_text)
+                  width = bbox[2] - bbox[0]
+                  img = Image.new("RGBA", (max(10, width + 50), 80), (0,0,0,0))
+                  draw = ImageDraw.Draw(img)
+                  draw.text((27, 12), bidi_text, font=font, fill=(0,0,0,255))
+                  draw.text((25, 10), bidi_text, font=font, fill=(255,255,255,255))
+                  
+              img.save(filename)
+
+          create_img(ticker, "ticker.png", 42)
+          create_img(static, "static.png", 40)
           EOF
           python3 format_text.py
 
-      - name: دەستپێکردنی پەخش بە لۆگۆ و دیزاینی پێشکەوتووەوە
+      - name: دەستپێکردنی پەخش بە سیستەمی وێنە جووڵاوەکانەوە
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
-          ffmpeg -re -i "${{ github.event.inputs.stream_url }}" -i "${{ github.event.inputs.logo_url }}" \
-          -filter_complex "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35,drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=180:borderw=2:bordercolor=black,drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-62:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=0:y=ih-80:color=#D35400@1.0:width=280:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=white:fontsize=40:x=45:y=h-62:shadowcolor=black:shadowx=2:shadowy=2" \
+          ffmpeg -re -i "${{ github.event.inputs.stream_url }}" -i "${{ github.event.inputs.logo_url }}" -i ticker.png -i static.png \
+          -filter_complex "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=(280-w)/2:y=H-80" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
