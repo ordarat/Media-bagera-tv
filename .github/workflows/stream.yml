@@ -5,19 +5,24 @@ on:
     inputs:
       stream_url:
         description: 'لینکی ڤیدیۆ یان m3u8 لێرە دابنێ'
-        required: true
+        required: false
         type: string
         default: 'http://185.191.126.127:8080/live///b0:99:d7:15:88:50/3090914536649669/358220.ts'
       logo_url:
         description: 'لینکی وێنەی لۆگۆکە'
-        required: true
+        required: false
         type: string
         default: 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
       ticker_text:
         description: 'نووسینی شریتی هەواڵەکان'
-        required: true
+        required: false
         type: string
         default: 'بەخێربێن بۆ کەناڵی ناوخۆیی میدیا باگێرا و سیستەمی لایڤزۆن'
+      playlist_data:
+        description: 'زانیارییەکانی خشتەی ڕیزبەندی (JSON)'
+        required: false
+        type: string
+        default: '[]'
 
 jobs:
   start_stream:
@@ -69,12 +74,66 @@ jobs:
           EOF
           python3 format_text.py
 
-      - name: دەستپێکردنی پەخش بە سیستەمی کاتژمێرەوە
+      - name: سیستەمی زیرەکی خشتەی ڕیزبەندی (Playout Engine)
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
           TZ: Asia/Baghdad
+          PLAYLIST_DATA: ${{ github.event.inputs.playlist_data }}
+          STREAM_URL: ${{ github.event.inputs.stream_url }}
+          LOGO_URL: ${{ github.event.inputs.logo_url }}
         run: |
-          ffmpeg -re -i "${{ github.event.inputs.stream_url }}" -i "${{ github.event.inputs.logo_url }}" -i ticker.png -i static.png \
-          -filter_complex "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2" \
-          -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
-          -c:a aac -b:a 128k -f flv "$RTMP_URL"
+          cat << 'EOF' > stream_manager.py
+          import os, json, subprocess, time
+
+          playlist_json = os.environ.get('PLAYLIST_DATA', '[]')
+          fallback_url = os.environ.get('STREAM_URL', '')
+          rtmp_url = os.environ.get('RTMP_URL', '')
+          logo_url = os.environ.get('LOGO_URL', '')
+
+          try:
+              playlist = json.loads(playlist_json)
+          except:
+              playlist = []
+
+          # ئەگەر داشبۆردەکە خشتەی نەناردبوو، لینکی یەدەگ بەکاردێنێت
+          if not playlist or len(playlist) == 0:
+              playlist = [{'type': 'video', 'duration': 60, 'url': fallback_url}]
+
+          # دیزاینە جێگیرەکەی کەناڵەکە (لۆگۆ، کاتژمێر، شریتی هەواڵ)
+          filter_complex = "[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2"
+          
+          # سوڕانەوەی بەردەوام بەناو خشتەکەدا
+          while True:
+              for index, item in enumerate(playlist):
+                  url = item.get('url')
+                  itype = item.get('type', 'video')
+                  dur_minutes = float(item.get('duration', 60))
+                  dur_seconds = int(dur_minutes * 60)
+
+                  print(f"\n---> دەستپێکردنی بڕگەی ژمارە {index + 1}: {itype} بۆ ماوەی {dur_minutes} خولەک <---")
+                  
+                  cmd = ['ffmpeg']
+                  
+                  if itype == 'image':
+                      # ڕێکخستنی تایبەت بۆ وێنە (دروستکردنی ڤیدیۆ لە وێنەکە لەگەڵ دەنگی بێدەنگ)
+                      cmd.extend(['-loop', '1', '-t', str(dur_seconds), '-i', url])
+                      cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
+                      cmd.extend(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']) # دەنگی بێدەنگ
+                      cmd.extend(['-filter_complex', filter_complex])
+                      cmd.extend(['-map', '[v7]', '-map', '4:a'])
+                      cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p'])
+                      cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-shortest', '-f', 'flv', rtmp_url])
+                  else:
+                      # ڕێکخستن بۆ ڤیدیۆ و ستریم
+                      cmd.extend(['-re', '-t', str(dur_seconds), '-i', url])
+                      cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
+                      cmd.extend(['-filter_complex', filter_complex])
+                      cmd.extend(['-map', '[v7]', '-map', '0:a?'])
+                      cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k'])
+                      cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-f', 'flv', rtmp_url])
+
+                  # جێبەجێکردنی فەرمانەکە
+                  subprocess.run(cmd)
+                  time.sleep(2) # پشوویەکی کورت پێش بڕگەی دواتر
+          EOF
+          python3 stream_manager.py
