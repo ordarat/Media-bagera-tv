@@ -18,34 +18,45 @@ jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی بەرنامەکان و فۆنت
+      - name: دابەزاندنی بەرنامەکان و فۆنتی کوردی
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
           pip3 install arabic-reshaper python-bidi --break-system-packages
-          wget -qO myfont.ttf "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoNaskhArabic/NotoNaskhArabic-Regular.ttf"
+          wget -qO myfont.ttf "https://github.com/googlefonts/noto-fonts/raw/main/unhinted/ttf/NotoSansArabic/NotoSansArabic-Bold.ttf"
 
-      - name: ڕێکخستنی پیتە کوردییەکان
+      - name: ڕێکخستنی پیتە کوردییەکان و دیزاین
         run: |
           cat << 'EOF' > format_text.py
           import sys
           import arabic_reshaper
           from bidi.algorithm import get_display
           
-          text = sys.argv[1]
-          reshaped_text = arabic_reshaper.reshape(text)
-          bidi_text = get_display(reshaped_text)
+          # ڕێکخستنی پایتۆن بۆ زمان و پیتە کوردییەکان
+          config = {'language': 'Kurdish', 'delete_harakat': True}
+          reshaper = arabic_reshaper.ArabicReshaper(configuration=config)
           
+          # ئامادەکردنی نوسینی شریتی هەواڵ
+          text = sys.argv[1]
+          reshaped_text = reshaper.reshape(text)
+          bidi_text = get_display(reshaped_text)
           with open("ticker.txt", "w", encoding="utf-8") as f:
               f.write(bidi_text)
+              
+          # ئامادەکردنی نوسینی ناو بۆکسە ڕەشەکە (دەنگ و باس)
+          static_text = "دەنگ و باس"
+          reshaped_static = reshaper.reshape(static_text)
+          bidi_static = get_display(reshaped_static)
+          with open("static.txt", "w", encoding="utf-8") as f:
+              f.write(bidi_static)
           EOF
           python3 format_text.py "${{ github.event.inputs.ticker_text }}"
 
-      - name: دەستپێکردنی پەخش بە دیزاینی نوێوە
+      - name: دەستپێکردنی پەخش بە دیزاینە پرۆفیشناڵەکەوە
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
           ffmpeg -re -i "${{ github.event.inputs.stream_url }}" \
-          -vf "drawbox=y=ih-70:color=black@0.75:width=iw:height=70:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=36:x=w-mod(t*130\,w+tw):y=h-55" \
+          -vf "drawbox=y=ih-80:color=#aa0000@0.9:width=iw:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=ticker.txt:fontcolor=white:fontsize=42:x=w-mod(t*150\,w+tw):y=h-60:shadowcolor=black:shadowx=2:shadowy=2,drawbox=x=w-250:y=ih-80:color=black@1.0:width=250:height=80:t=fill,drawtext=fontfile=myfont.ttf:textfile=static.txt:fontcolor=#FFD700:fontsize=42:x=w-210:y=h-60" \
           -c:v libx264 -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 5000k \
           -c:a aac -b:a 128k -f flv "$RTMP_URL"
