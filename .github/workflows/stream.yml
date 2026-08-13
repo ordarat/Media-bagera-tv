@@ -16,7 +16,7 @@ jobs:
           pip3 install Pillow arabic-reshaper python-bidi requests --break-system-packages
           wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
-      - name: گوێگری زیرەکی فایەربەیس (Real-time Firebase Listener)
+      - name: گوێگری خێرای فایەربەیس (RTDB Listener)
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
@@ -26,13 +26,12 @@ jobs:
           import arabic_reshaper
           from bidi.algorithm import get_display
 
-          PROJECT_ID = "media-bagera-63d90"
-          DOC_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/system/mcr_data"
+          RTDB_URL = "https://media-bagera-63d90-default-rtdb.europe-west1.firebasedatabase.app/system/mcr_data.json"
           RTMP_URL = os.environ.get('RTMP_URL', '')
 
           def create_img(text, filename, font_size):
-              font = ImageFont.truetype("myfont.ttf", font_size)
               try:
+                  font = ImageFont.truetype("myfont.ttf", font_size)
                   reshaper = arabic_reshaper.ArabicReshaper(configuration={'language': 'Kurdish', 'delete_harakat': True})
                   bidi_text = get_display(reshaper.reshape(text))
                   bbox = font.getbbox(bidi_text)
@@ -45,6 +44,9 @@ jobs:
                   img = Image.new("RGBA", (500, 80), (0,0,0,0))
               img.save(filename)
 
+          create_img("بەخێربێن بۆ کەناڵی لایڤزۆن", "ticker.png", 42)
+          create_img("دەنگ و باس", "static.png", 40)
+
           class Player:
               def __init__(self):
                   self.process = None
@@ -56,24 +58,24 @@ jobs:
                   
               def poll(self):
                   try:
-                      r = requests.get(DOC_URL, timeout=5)
+                      r = requests.get(RTDB_URL, timeout=3)
                       if r.status_code == 200:
-                          fields = r.json().get('fields', {})
-                          ts = int(fields.get('timestamp', {}).get('integerValue', 0))
-                          cmd = fields.get('command', {}).get('stringValue', 'play')
-                          payload_str = fields.get('payload', {}).get('stringValue', '{}')
-                          
-                          if ts > self.last_ts:
-                              self.last_ts = ts
-                              self.command = cmd
-                              try:
-                                  self.data = json.loads(payload_str)
-                                  ticker_text = self.data.get('t', 'بەخێربێن')
-                                  create_img(ticker_text, "ticker.png", 42)
-                                  create_img("دەنگ و باس", "static.png", 40)
-                              except:
-                                  pass
-                              return True
+                          data = r.json()
+                          if data:
+                              ts = int(data.get('timestamp', 0))
+                              cmd = data.get('command', 'play')
+                              payload_str = data.get('payload', '{}')
+                              
+                              if ts > self.last_ts:
+                                  self.last_ts = ts
+                                  self.command = cmd
+                                  try:
+                                      self.data = json.loads(payload_str)
+                                      ticker_text = self.data.get('t', 'بەخێربێن')
+                                      create_img(ticker_text, "ticker.png", 42)
+                                  except:
+                                      pass
+                                  return True
                   except:
                       pass
                   return False
@@ -88,7 +90,10 @@ jobs:
                       self.process = None
 
               def play_media_chunk(self, url, itype, duration_sec, start_offset, logo_url):
-                  filter_complex = r"[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2[vout]"
+                  if not logo_url or logo_url.strip() == '':
+                      logo_url = 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
+                      
+                  filter_complex = r"[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='LiveZon TV':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2[vout]"
                   
                   cmd = ['ffmpeg']
                   if itype == 'image':
@@ -110,7 +115,7 @@ jobs:
                   while time.time() - start_time < duration_sec:
                       if self.process.poll() is not None:
                           break 
-                      time.sleep(3) 
+                      time.sleep(2) 
                       if self.poll():
                           self.kill_ffmpeg()
                           return "interrupted"
@@ -120,32 +125,36 @@ jobs:
 
               def run(self):
                   while not self.poll():
-                      time.sleep(3)
+                      time.sleep(2)
                   
                   while True:
                       if self.command == 'stop':
-                          offline_img = self.data.get('o') or self.data.get('l') or 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
+                          offline_img = self.data.get('o', '').strip()
+                          if not offline_img: offline_img = self.data.get('l', '').strip()
+                          if not offline_img: offline_img = 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
+                              
                           res = self.play_media_chunk(offline_img, 'image', 3600, 0, self.data.get('l', offline_img))
                           if res == "interrupted": continue
                       else:
                           playlist = self.data.get('play', [])
                           ads = self.data.get('ads', [])
-                          ad_int_min = float(self.data.get('ai', 10))
-                          ad_int_sec = int(ad_int_min * 60)
-                          logo = self.data.get('l', 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png')
+                          try:
+                              ad_int_sec = int(float(self.data.get('ai', 10)) * 60)
+                          except:
+                              ad_int_sec = 600
+                          logo = self.data.get('l', '').strip() or 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
                           
                           if not playlist:
-                              time.sleep(3)
+                              time.sleep(2)
                               self.poll()
                               continue
                           
                           interrupted = False
                           for item in playlist:
-                              url = item.get('url', '')
+                              url = item.get('url', '').strip()
                               if not url: continue
                               itype = item.get('type', 'video')
                               dur = int(item.get('duration', 60)) * 60
-                              
                               remaining_dur = dur
                               current_offset = 0
                               
@@ -155,7 +164,7 @@ jobs:
                                       time_since_ad = now - self.last_ad_time
                                       if time_since_ad >= ad_int_sec:
                                           current_ad = ads[self.ad_index % len(ads)]
-                                          ad_url = current_ad.get('url', '')
+                                          ad_url = current_ad.get('url', '').strip()
                                           ad_type = current_ad.get('type', 'video')
                                           ad_dur = int(current_ad.get('duration', 30))
                                           if ad_url:
