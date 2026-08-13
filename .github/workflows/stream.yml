@@ -19,10 +19,14 @@ on:
         description: 'خشتەی پەخش (JSON)'
         required: false
         default: '[]'
-      ad_data:
-        description: 'ڕێکلام (JSON)'
+      ads_data:
+        description: 'ڕێکلامەکان (JSON)'
         required: false
-        default: '{}'
+        default: '[]'
+      ad_interval:
+        description: 'ماوەی نێوان ڕێکلامەکان بە خولەک'
+        required: false
+        default: '10'
       offline_image:
         description: 'وێنەی کوژانەوە'
         required: false
@@ -78,13 +82,14 @@ jobs:
           EOF
           python3 format_text.py
 
-      - name: مەکینەی پەخش (Time-Based Playout)
+      - name: مەکینەی پەخش (Multi-Ad Playout)
         env:
           RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
           TZ: Asia/Baghdad
           MODE: ${{ github.event.inputs.mode }}
           PLAYLIST_DATA: ${{ github.event.inputs.playlist_data }}
-          AD_DATA: ${{ github.event.inputs.ad_data }}
+          ADS_DATA: ${{ github.event.inputs.ads_data }}
+          AD_INTERVAL: ${{ github.event.inputs.ad_interval }}
           LOGO_URL: ${{ github.event.inputs.logo_url }}
           OFFLINE_IMAGE: ${{ github.event.inputs.offline_image }}
         run: |
@@ -100,8 +105,12 @@ jobs:
           try: playlist = json.loads(os.environ.get('PLAYLIST_DATA', '[]'))
           except: playlist = []
           
-          try: ad = json.loads(os.environ.get('AD_DATA', '{}'))
-          except: ad = {}
+          try: ads_list = json.loads(os.environ.get('ADS_DATA', '[]'))
+          except: ads_list = []
+
+          try: ad_interval_min = float(os.environ.get('AD_INTERVAL', '10'))
+          except: ad_interval_min = 10
+          ad_interval_sec = int(ad_interval_min * 60)
 
           filter_complex = r"[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2"
 
@@ -127,18 +136,10 @@ jobs:
               print("--- پەخش وەستێنرا ---")
               while True: play_media(offline_img, 'image', 86400)
           else:
-              try: ad_interval_min = float(ad.get('interval') or 0)
-              except: ad_interval_min = 0
-              ad_interval_sec = int(ad_interval_min * 60)
-              
-              try: ad_duration = int(ad.get('duration') or 30)
-              except: ad_duration = 30
-              
-              ad_url = ad.get('url', '').strip()
-              if not playlist:
-                  sys.exit(0)
+              if not playlist: sys.exit(0)
 
               last_ad_time = time.time()
+              ad_index = 0 # بۆ سووڕانەوە بەناو ڕێکلامەکاندا
 
               while True:
                   for item in playlist:
@@ -152,10 +153,21 @@ jobs:
                       
                       while remaining_dur > 0:
                           now = time.time()
-                          if ad_interval_sec > 0 and ad_url != '':
+                          if ad_interval_sec > 0 and len(ads_list) > 0:
                               time_since_ad = now - last_ad_time
                               if time_since_ad >= ad_interval_sec:
-                                  play_media(ad_url, ad.get('type', 'video'), ad_duration)
+                                  # هەڵبژاردنی ڕێکلامی داهاتوو لە لیستەکەدا بە شێوەیەکی سووڕاوە
+                                  current_ad = ads_list[ad_index % len(ads_list)]
+                                  ad_url = current_ad.get('url', '').strip()
+                                  ad_type = current_ad.get('type', 'video')
+                                  try: ad_dur = int(current_ad.get('duration', 30))
+                                  except: ad_dur = 30
+                                  
+                                  if ad_url:
+                                      print(f"--- پەخشکردنی ڕێکلامی ژمارە {ad_index + 1} ---")
+                                      play_media(ad_url, ad_type, ad_dur)
+                                      ad_index += 1
+                                      
                                   last_ad_time = time.time()
                                   continue 
                               
