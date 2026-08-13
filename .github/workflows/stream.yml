@@ -1,37 +1,6 @@
 name: LiveZon Cloud Playout
-
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: 'دۆخی پەخش'
-        required: false
-        default: 'play'
-      logo_url:
-        description: 'لینکی لۆگۆ'
-        required: false
-        default: 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
-      ticker_text:
-        description: 'شریتی هەواڵ'
-        required: false
-        default: 'بەخێربێن'
-      playlist_data:
-        description: 'خشتەی پەخش (JSON)'
-        required: false
-        default: '[]'
-      ads_data:
-        description: 'ڕێکلامەکان (JSON)'
-        required: false
-        default: '[]'
-      ad_interval:
-        description: 'ماوەی نێوان ڕێکلامەکان بە خولەک'
-        required: false
-        default: '10'
-      offline_image:
-        description: 'وێنەی کوژانەوە'
-        required: false
-        default: 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
-
 concurrency:
   group: "livezon-playout"
   cancel-in-progress: true
@@ -40,34 +9,30 @@ jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی پێداویستییەکان
+      - name: ئامادەکردنی سێرڤەر و پێداویستییەکان
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
-          pip3 install Pillow arabic-reshaper python-bidi --break-system-packages
+          pip3 install Pillow arabic-reshaper python-bidi requests --break-system-packages
           wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
-      - name: ئامادەکردنی نووسینەکان
+      - name: گوێگری زیرەکی فایەربەیس (Real-time Firebase Listener)
         env:
-          TICKER_TEXT: ${{ github.event.inputs.ticker_text }}
+          RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
         run: |
-          cat << 'EOF' > format_text.py
-          import os
+          cat << 'EOF' > stream_manager.py
+          import os, json, subprocess, time, requests
           from PIL import Image, ImageDraw, ImageFont
-          ticker = os.environ.get('TICKER_TEXT', 'بەخێربێن')
-          static = "دەنگ و باس"
+          import arabic_reshaper
+          from bidi.algorithm import get_display
+
+          PROJECT_ID = "media-bagera-63d90"
+          DOC_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents/system/mcr_data"
+          RTMP_URL = os.environ.get('RTMP_URL', '')
+
           def create_img(text, filename, font_size):
               font = ImageFont.truetype("myfont.ttf", font_size)
               try:
-                  bbox = font.getbbox(text, direction="rtl", language="ckb")
-                  width = bbox[2] - bbox[0]
-                  img = Image.new("RGBA", (max(10, width + 50), 80), (0,0,0,0))
-                  draw = ImageDraw.Draw(img)
-                  draw.text((27, 12), text, font=font, fill=(0,0,0,255), direction="rtl", language="ckb")
-                  draw.text((25, 10), text, font=font, fill=(255,255,255,255), direction="rtl", language="ckb")
-              except Exception:
-                  import arabic_reshaper
-                  from bidi.algorithm import get_display
                   reshaper = arabic_reshaper.ArabicReshaper(configuration={'language': 'Kurdish', 'delete_harakat': True})
                   bidi_text = get_display(reshaper.reshape(text))
                   bbox = font.getbbox(bidi_text)
@@ -76,114 +41,153 @@ jobs:
                   draw = ImageDraw.Draw(img)
                   draw.text((27, 12), bidi_text, font=font, fill=(0,0,0,255))
                   draw.text((25, 10), bidi_text, font=font, fill=(255,255,255,255))
+              except Exception:
+                  img = Image.new("RGBA", (500, 80), (0,0,0,0))
               img.save(filename)
-          create_img(ticker, "ticker.png", 42)
-          create_img(static, "static.png", 40)
-          EOF
-          python3 format_text.py
 
-      - name: مەکینەی پەخش (Multi-Ad Playout)
-        env:
-          RTMP_URL: ${{ secrets.OKRU_RTMP_URL }}
-          TZ: Asia/Baghdad
-          MODE: ${{ github.event.inputs.mode }}
-          PLAYLIST_DATA: ${{ github.event.inputs.playlist_data }}
-          ADS_DATA: ${{ github.event.inputs.ads_data }}
-          AD_INTERVAL: ${{ github.event.inputs.ad_interval }}
-          LOGO_URL: ${{ github.event.inputs.logo_url }}
-          OFFLINE_IMAGE: ${{ github.event.inputs.offline_image }}
-        run: |
-          cat << 'EOF' > stream_manager.py
-          import os, json, subprocess, time, sys
+          class Player:
+              def __init__(self):
+                  self.process = None
+                  self.last_ts = 0
+                  self.data = {}
+                  self.command = 'play'
+                  self.last_ad_time = time.time()
+                  self.ad_index = 0
+                  
+              def poll(self):
+                  try:
+                      r = requests.get(DOC_URL, timeout=5)
+                      if r.status_code == 200:
+                          fields = r.json().get('fields', {})
+                          ts = int(fields.get('timestamp', {}).get('integerValue', 0))
+                          cmd = fields.get('command', {}).get('stringValue', 'play')
+                          payload_str = fields.get('payload', {}).get('stringValue', '{}')
+                          
+                          if ts > self.last_ts:
+                              self.last_ts = ts
+                              self.command = cmd
+                              try:
+                                  self.data = json.loads(payload_str)
+                                  ticker_text = self.data.get('t', 'بەخێربێن')
+                                  create_img(ticker_text, "ticker.png", 42)
+                                  create_img("دەنگ و باس", "static.png", 40)
+                              except:
+                                  pass
+                              return True
+                  except:
+                      pass
+                  return False
 
-          mode = os.environ.get('MODE', 'play')
-          rtmp_url = os.environ.get('RTMP_URL', '')
-          logo_url = os.environ.get('LOGO_URL', '')
-          offline_img = os.environ.get('OFFLINE_IMAGE', '')
-          if not offline_img: offline_img = logo_url
-          
-          try: playlist = json.loads(os.environ.get('PLAYLIST_DATA', '[]'))
-          except: playlist = []
-          
-          try: ads_list = json.loads(os.environ.get('ADS_DATA', '[]'))
-          except: ads_list = []
+              def kill_ffmpeg(self):
+                  if self.process:
+                      try:
+                          self.process.kill()
+                          self.process.wait()
+                      except:
+                          pass
+                      self.process = None
 
-          try: ad_interval_min = float(os.environ.get('AD_INTERVAL', '10'))
-          except: ad_interval_min = 10
-          ad_interval_sec = int(ad_interval_min * 60)
+              def play_media_chunk(self, url, itype, duration_sec, start_offset, logo_url):
+                  filter_complex = r"[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2[vout]"
+                  
+                  cmd = ['ffmpeg']
+                  if itype == 'image':
+                      cmd.extend(['-loop', '1', '-t', str(duration_sec), '-i', url])
+                      cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo'])
+                      cmd.extend(['-filter_complex', filter_complex, '-map', '[vout]', '-map', '4:a'])
+                  else:
+                      if start_offset > 0 and '.m3u8' not in url:
+                          cmd.extend(['-ss', str(start_offset)])
+                      cmd.extend(['-re', '-t', str(duration_sec), '-i', url])
+                      cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
+                      cmd.extend(['-filter_complex', filter_complex, '-map', '[vout]', '-map', '0:a?'])
+                  
+                  cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-f', 'flv', RTMP_URL])
+                  
+                  self.process = subprocess.Popen(cmd)
+                  start_time = time.time()
+                  
+                  while time.time() - start_time < duration_sec:
+                      if self.process.poll() is not None:
+                          break 
+                      time.sleep(3) 
+                      if self.poll():
+                          self.kill_ffmpeg()
+                          return "interrupted"
+                  
+                  self.kill_ffmpeg()
+                  return "completed"
 
-          # چارەسەری کێشەکە بە دانانی ناوی [vout] لە کۆتایی نەخشەی دیزاینەکەدا
-          filter_complex = r"[1:v]scale=220:-1[logo];[0:v][logo]overlay=W-w-35:35[v1];[v1]drawtext=text='Media bagera tv':fontfile=myfont.ttf:fontcolor=white:fontsize=26:x=W-tw-35:y=270:borderw=2:bordercolor=black[v2];[v2]drawbox=y=ih-80:color=black@0.85:width=iw:height=80:t=fill[v3];[v3][2:v]overlay=x='W-mod(t*150\,W+w)':y=H-80[v4];[v4]drawbox=x=iw-280:y=ih-80:color=#8B5A2B@1.0:width=280:height=80:t=fill[v5];[v5][3:v]overlay=x=W-280+(280-w)/2:y=H-80[v6];[v6]drawbox=x=0:y=ih-80:color=#8B5A2B@1.0:width=160:height=80:t=fill[v7];[v7]drawtext=fontfile=myfont.ttf:text='%{localtime\:%R}':fontcolor=white:fontsize=45:x=(160-tw)/2:y=H-62:shadowcolor=black:shadowx=2:shadowy=2[vout]"
-
-          def play_media(url, itype, duration_sec, start_offset=0):
-              cmd = ['ffmpeg']
-              if itype == 'image':
-                  cmd.extend(['-loop', '1', '-t', str(duration_sec), '-i', url])
-                  cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
-                  cmd.extend(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo'])
-                  cmd.extend(['-filter_complex', filter_complex, '-map', '[vout]', '-map', '4:a'])
-              else:
-                  if start_offset > 0 and '.m3u8' not in url:
-                      cmd.extend(['-ss', str(start_offset)])
-                  cmd.extend(['-re', '-t', str(duration_sec), '-i', url])
-                  cmd.extend(['-i', logo_url, '-i', 'ticker.png', '-i', 'static.png'])
-                  cmd.extend(['-filter_complex', filter_complex, '-map', '[vout]', '-map', '0:a?'])
+          def run(self):
+              while not self.poll():
+                  time.sleep(3)
               
-              cmd.extend(['-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p'])
-              cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-f', 'flv', rtmp_url])
-              subprocess.run(cmd)
-
-          if mode == 'stop':
-              print("--- پەخش وەستێنرا ---")
-              while True: play_media(offline_img, 'image', 86400)
-          else:
-              if not playlist: sys.exit(0)
-
-              last_ad_time = time.time()
-              ad_index = 0
-
               while True:
-                  for item in playlist:
-                      url = item.get('url', '').strip()
-                      if not url: continue
-                      try: item_dur = int(float(item.get('duration') or 60) * 60)
-                      except: item_dur = 3600
+                  if self.command == 'stop':
+                      offline_img = self.data.get('o') or self.data.get('l') or 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
+                      res = self.play_media_chunk(offline_img, 'image', 3600, 0, self.data.get('l', offline_img))
+                      if res == "interrupted": continue
+                  else:
+                      playlist = self.data.get('play', [])
+                      ads = self.data.get('ads', [])
+                      ad_int_min = float(self.data.get('ai', 10))
+                      ad_int_sec = int(ad_int_min * 60)
+                      logo = self.data.get('l', 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png')
                       
-                      remaining_dur = item_dur
-                      current_offset = 0
+                      if not playlist:
+                          time.sleep(3)
+                          self.poll()
+                          continue
                       
-                      while remaining_dur > 0:
-                          now = time.time()
-                          if ad_interval_sec > 0 and len(ads_list) > 0:
-                              time_since_ad = now - last_ad_time
-                              if time_since_ad >= ad_interval_sec:
-                                  current_ad = ads_list[ad_index % len(ads_list)]
-                                  ad_url = current_ad.get('url', '').strip()
-                                  ad_type = current_ad.get('type', 'video')
-                                  try: ad_dur = int(current_ad.get('duration', 30))
-                                  except: ad_dur = 30
+                      interrupted = False
+                      for item in playlist:
+                          url = item.get('url', '')
+                          if not url: continue
+                          itype = item.get('type', 'video')
+                          dur = int(item.get('duration', 60)) * 60
+                          
+                          remaining_dur = dur
+                          current_offset = 0
+                          
+                          while remaining_dur > 0:
+                              now = time.time()
+                              if ad_int_sec > 0 and len(ads) > 0:
+                                  time_since_ad = now - self.last_ad_time
+                                  if time_since_ad >= ad_int_sec:
+                                      current_ad = ads[self.ad_index % len(ads)]
+                                      ad_url = current_ad.get('url', '')
+                                      ad_type = current_ad.get('type', 'video')
+                                      ad_dur = int(current_ad.get('duration', 30))
+                                      if ad_url:
+                                          res = self.play_media_chunk(ad_url, ad_type, ad_dur, 0, logo)
+                                          if res == "interrupted":
+                                              interrupted = True
+                                              break
+                                      self.ad_index += 1
+                                      self.last_ad_time = time.time()
+                                      continue
                                   
-                                  if ad_url:
-                                      print(f"--- پەخشکردنی ڕێکلامی ژمارە {ad_index + 1} ---")
-                                      play_media(ad_url, ad_type, ad_dur)
-                                      ad_index += 1
-                                      
-                                  last_ad_time = time.time()
-                                  continue 
+                                  time_until_ad = ad_int_sec - time_since_ad
+                                  play_chunk = min(remaining_dur, time_until_ad)
+                              else:
+                                  play_chunk = remaining_dur
+                                  
+                              play_chunk = int(play_chunk)
+                              if play_chunk <= 0: play_chunk = 1
                               
-                              time_until_ad = ad_interval_sec - time_since_ad
-                              play_chunk = min(remaining_dur, time_until_ad)
-                          else:
-                              play_chunk = remaining_dur
+                              res = self.play_media_chunk(url, itype, play_chunk, current_offset, logo)
+                              if res == "interrupted":
+                                  interrupted = True
+                                  break
+                                  
+                              remaining_dur -= play_chunk
+                              current_offset += play_chunk
                               
-                          play_chunk = int(play_chunk)
-                          if play_chunk <= 0: play_chunk = 1
-                          
-                          play_media(url, item.get('type', 'video'), play_chunk, current_offset)
-                          
-                          remaining_dur -= play_chunk
-                          current_offset += play_chunk
-                          
-                  time.sleep(1)
+                          if interrupted:
+                              break
+
+          if __name__ == '__main__':
+              player = Player()
+              player.run()
           EOF
           python3 stream_manager.py
