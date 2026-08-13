@@ -36,8 +36,10 @@ jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی پێداویستییەکان
+      - name: دابەزاندنی پێداویستییەکان و مەکینەی پەخش
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg python3-pip
           pip3 install Pillow arabic-reshaper python-bidi --break-system-packages
           wget -qO myfont.ttf "https://raw.githubusercontent.com/rastikerdar/vazirmatn/master/fonts/ttf/Vazirmatn-Bold.ttf"
 
@@ -110,7 +112,6 @@ jobs:
                   cmd.extend(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo'])
                   cmd.extend(['-filter_complex', filter_complex, '-map', '[v7]', '-map', '4:a'])
               else:
-                  # بۆ ئەوەی ئەگەر ڤیدیۆ بێت لەو شوێنەوە دەست پێبکاتەوە کە وەستابوو
                   if start_offset > 0 and '.m3u8' not in url:
                       cmd.extend(['-ss', str(start_offset)])
                   cmd.extend(['-re', '-t', str(duration_sec), '-i', url])
@@ -135,7 +136,7 @@ jobs:
               ad_url = ad.get('url', '').strip()
               if not playlist: sys.exit(0)
 
-              last_ad_time = time.time() # دەستپێکردنی کاتژمێر
+              last_ad_time = time.time()
 
               while True:
                   for item in playlist:
@@ -145,20 +146,18 @@ jobs:
                       except: item_dur = 3600
                       
                       remaining_dur = item_dur
-                      current_offset = 0 # شوێنی دەستپێکردنی ڤیدیۆکە
+                      current_offset = 0
                       
                       while remaining_dur > 0:
                           now = time.time()
-                          # پشکنینی کاتی ڕێکلام
                           if ad_interval_sec > 0 and ad_url != '':
                               time_since_ad = now - last_ad_time
                               if time_since_ad >= ad_interval_sec:
                                   print("--- کاتی ڕێکلامە ---")
                                   play_media(ad_url, ad.get('type', 'video'), ad_duration)
                                   last_ad_time = time.time()
-                                  continue # دووبارە پشکنینەوەی کاتەکە
+                                  continue 
                               
-                              # ئەگەر هێشتا نەبووە بە کاتی ڕێکلام، تەنها تا کاتی ڕێکلامەکە ڤیدیۆکە لێدەدات
                               time_until_ad = ad_interval_sec - time_since_ad
                               play_chunk = min(remaining_dur, time_until_ad)
                           else:
@@ -170,7 +169,7 @@ jobs:
                           play_media(url, item.get('type', 'video'), play_chunk, current_offset)
                           
                           remaining_dur -= play_chunk
-                          current_offset += play_chunk # ڤیدیۆکە دەچێتە پێشەوە
+                          current_offset += play_chunk
                           
                   time.sleep(1)
           EOF
