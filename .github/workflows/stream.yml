@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         description: 'دۆخی پەخش'
-        required: true
+        required: false
         default: 'play'
       logo_url:
         description: 'لینکی لۆگۆ'
@@ -26,7 +26,7 @@ on:
       offline_image:
         description: 'وێنەی کوژانەوە'
         required: false
-        default: ''
+        default: 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
 
 concurrency:
   group: "livezon-playout"
@@ -36,7 +36,7 @@ jobs:
   start_stream:
     runs-on: ubuntu-latest
     steps:
-      - name: دابەزاندنی پێداویستییەکان و مەکینەی پەخش
+      - name: دابەزاندنی پێداویستییەکان
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg python3-pip
@@ -95,6 +95,7 @@ jobs:
           rtmp_url = os.environ.get('RTMP_URL', '')
           logo_url = os.environ.get('LOGO_URL', '')
           offline_img = os.environ.get('OFFLINE_IMAGE', '')
+          if not offline_img: offline_img = logo_url
           
           try: playlist = json.loads(os.environ.get('PLAYLIST_DATA', '[]'))
           except: playlist = []
@@ -123,7 +124,7 @@ jobs:
               subprocess.run(cmd)
 
           if mode == 'stop':
-              if not offline_img: offline_img = logo_url
+              print("--- پەخش وەستێنرا ---")
               while True: play_media(offline_img, 'image', 86400)
           else:
               try: ad_interval_min = float(ad.get('interval') or 0)
@@ -134,7 +135,8 @@ jobs:
               except: ad_duration = 30
               
               ad_url = ad.get('url', '').strip()
-              if not playlist: sys.exit(0)
+              if not playlist:
+                  sys.exit(0)
 
               last_ad_time = time.time()
 
@@ -153,7 +155,6 @@ jobs:
                           if ad_interval_sec > 0 and ad_url != '':
                               time_since_ad = now - last_ad_time
                               if time_since_ad >= ad_interval_sec:
-                                  print("--- کاتی ڕێکلامە ---")
                                   play_media(ad_url, ad.get('type', 'video'), ad_duration)
                                   last_ad_time = time.time()
                                   continue 
