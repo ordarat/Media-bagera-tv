@@ -118,73 +118,73 @@ jobs:
                   self.kill_ffmpeg()
                   return "completed"
 
-          def run(self):
-              while not self.poll():
-                  time.sleep(3)
-              
-              while True:
-                  if self.command == 'stop':
-                      offline_img = self.data.get('o') or self.data.get('l') or 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
-                      res = self.play_media_chunk(offline_img, 'image', 3600, 0, self.data.get('l', offline_img))
-                      if res == "interrupted": continue
-                  else:
-                      playlist = self.data.get('play', [])
-                      ads = self.data.get('ads', [])
-                      ad_int_min = float(self.data.get('ai', 10))
-                      ad_int_sec = int(ad_int_min * 60)
-                      logo = self.data.get('l', 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png')
-                      
-                      if not playlist:
-                          time.sleep(3)
-                          self.poll()
-                          continue
-                      
-                      interrupted = False
-                      for item in playlist:
-                          url = item.get('url', '')
-                          if not url: continue
-                          itype = item.get('type', 'video')
-                          dur = int(item.get('duration', 60)) * 60
+              def run(self):
+                  while not self.poll():
+                      time.sleep(3)
+                  
+                  while True:
+                      if self.command == 'stop':
+                          offline_img = self.data.get('o') or self.data.get('l') or 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png'
+                          res = self.play_media_chunk(offline_img, 'image', 3600, 0, self.data.get('l', offline_img))
+                          if res == "interrupted": continue
+                      else:
+                          playlist = self.data.get('play', [])
+                          ads = self.data.get('ads', [])
+                          ad_int_min = float(self.data.get('ai', 10))
+                          ad_int_sec = int(ad_int_min * 60)
+                          logo = self.data.get('l', 'https://i.postimg.cc/Dwwpt9B0/1000034754-removebg-preview.png')
                           
-                          remaining_dur = dur
-                          current_offset = 0
+                          if not playlist:
+                              time.sleep(3)
+                              self.poll()
+                              continue
                           
-                          while remaining_dur > 0:
-                              now = time.time()
-                              if ad_int_sec > 0 and len(ads) > 0:
-                                  time_since_ad = now - self.last_ad_time
-                                  if time_since_ad >= ad_int_sec:
-                                      current_ad = ads[self.ad_index % len(ads)]
-                                      ad_url = current_ad.get('url', '')
-                                      ad_type = current_ad.get('type', 'video')
-                                      ad_dur = int(current_ad.get('duration', 30))
-                                      if ad_url:
-                                          res = self.play_media_chunk(ad_url, ad_type, ad_dur, 0, logo)
-                                          if res == "interrupted":
-                                              interrupted = True
-                                              break
-                                      self.ad_index += 1
-                                      self.last_ad_time = time.time()
-                                      continue
-                                  
-                                  time_until_ad = ad_int_sec - time_since_ad
-                                  play_chunk = min(remaining_dur, time_until_ad)
-                              else:
-                                  play_chunk = remaining_dur
-                                  
-                              play_chunk = int(play_chunk)
-                              if play_chunk <= 0: play_chunk = 1
+                          interrupted = False
+                          for item in playlist:
+                              url = item.get('url', '')
+                              if not url: continue
+                              itype = item.get('type', 'video')
+                              dur = int(item.get('duration', 60)) * 60
                               
-                              res = self.play_media_chunk(url, itype, play_chunk, current_offset, logo)
-                              if res == "interrupted":
-                                  interrupted = True
+                              remaining_dur = dur
+                              current_offset = 0
+                              
+                              while remaining_dur > 0:
+                                  now = time.time()
+                                  if ad_int_sec > 0 and len(ads) > 0:
+                                      time_since_ad = now - self.last_ad_time
+                                      if time_since_ad >= ad_int_sec:
+                                          current_ad = ads[self.ad_index % len(ads)]
+                                          ad_url = current_ad.get('url', '')
+                                          ad_type = current_ad.get('type', 'video')
+                                          ad_dur = int(current_ad.get('duration', 30))
+                                          if ad_url:
+                                              res = self.play_media_chunk(ad_url, ad_type, ad_dur, 0, logo)
+                                              if res == "interrupted":
+                                                  interrupted = True
+                                                  break
+                                          self.ad_index += 1
+                                          self.last_ad_time = time.time()
+                                          continue
+                                      
+                                      time_until_ad = ad_int_sec - time_since_ad
+                                      play_chunk = min(remaining_dur, time_until_ad)
+                                  else:
+                                      play_chunk = remaining_dur
+                                      
+                                  play_chunk = int(play_chunk)
+                                  if play_chunk <= 0: play_chunk = 1
+                                  
+                                  res = self.play_media_chunk(url, itype, play_chunk, current_offset, logo)
+                                  if res == "interrupted":
+                                      interrupted = True
+                                      break
+                                      
+                                  remaining_dur -= play_chunk
+                                  current_offset += play_chunk
+                                  
+                              if interrupted:
                                   break
-                                  
-                              remaining_dur -= play_chunk
-                              current_offset += play_chunk
-                              
-                          if interrupted:
-                              break
 
           if __name__ == '__main__':
               player = Player()
